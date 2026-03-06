@@ -1,0 +1,1464 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "service-hub 接口文档",
+    "description": "Service Hub 的 Agent 管理、命令下发与审计查询接口。",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "系统"
+        ],
+        "summary": "健康检查",
+        "description": "检查服务与数据库连通性。",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents": {
+      "get": {
+        "tags": [
+          "Agent 管理"
+        ],
+        "summary": "查询全部 Agent",
+        "description": "返回当前所有 Agent 的最新连接状态与在线状态。",
+        "operationId": "list_agents_api_agents_get",
+        "responses": {
+          "200": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentSnapshot"
+                  },
+                  "title": "Response List Agents Api Agents Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Agent 管理"
+        ],
+        "summary": "创建 Agent 并签发初始密钥",
+        "description": "创建新的 Agent 记录，并返回该 Agent 的首次连接密钥。",
+        "operationId": "provision_agent_api_agents_post",
+        "parameters": [
+          {
+            "name": "X-Admin-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "管理令牌",
+              "description": "Hub 管理令牌，值来自环境变量 ADMIN_TOKEN。"
+            },
+            "description": "Hub 管理令牌，值来自环境变量 ADMIN_TOKEN。"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentProvisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProvisionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{agent_id}": {
+      "get": {
+        "tags": [
+          "Agent 管理"
+        ],
+        "summary": "查询单个 Agent",
+        "description": "根据 Agent 标识查询其最新状态。",
+        "operationId": "get_agent_api_agents__agent_id__get",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent 标识",
+              "description": "要查询的 Agent 唯一标识。"
+            },
+            "description": "要查询的 Agent 唯一标识。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSnapshot"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{agent_id}/credentials/rotate": {
+      "post": {
+        "tags": [
+          "Agent 管理"
+        ],
+        "summary": "轮换 Agent 密钥",
+        "description": "为指定 Agent 重新签发连接密钥。",
+        "operationId": "rotate_agent_credentials_api_agents__agent_id__credentials_rotate_post",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent 标识",
+              "description": "要轮换密钥的 Agent 唯一标识。"
+            },
+            "description": "要轮换密钥的 Agent 唯一标识。"
+          },
+          {
+            "name": "X-Admin-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "管理令牌",
+              "description": "Hub 管理令牌，值来自环境变量 ADMIN_TOKEN。"
+            },
+            "description": "Hub 管理令牌，值来自环境变量 ADMIN_TOKEN。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCredentialResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{agent_id}/commands": {
+      "get": {
+        "tags": [
+          "命令管理"
+        ],
+        "summary": "查询 Agent 命令历史",
+        "description": "按 Agent 维度分页查询命令历史，支持状态、动作、审计字段和时间范围筛选。",
+        "operationId": "list_agent_commands_api_agents__agent_id__commands_get",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent 标识",
+              "description": "要查询命令历史的 Agent 唯一标识。"
+            },
+            "description": "要查询命令历史的 Agent 唯一标识。"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "状态",
+              "description": "按命令状态筛选。"
+            },
+            "description": "按命令状态筛选。"
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "动作",
+              "description": "按命令动作筛选，例如 update 或 restart。"
+            },
+            "description": "按命令动作筛选，例如 update 或 restart。"
+          },
+          {
+            "name": "requestedBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "请求发起方",
+              "description": "按请求发起方筛选。"
+            },
+            "description": "按请求发起方筛选。"
+          },
+          {
+            "name": "requestSource",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "请求来源",
+              "description": "按请求来源筛选。"
+            },
+            "description": "按请求来源筛选。"
+          },
+          {
+            "name": "createdAfter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "起始时间",
+              "description": "只返回创建时间大于等于该时间的命令。"
+            },
+            "description": "只返回创建时间大于等于该时间的命令。"
+          },
+          {
+            "name": "createdBefore",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "结束时间",
+              "description": "只返回创建时间小于等于该时间的命令。"
+            },
+            "description": "只返回创建时间小于等于该时间的命令。"
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(createdAt|updatedAt)$",
+              "title": "排序字段",
+              "description": "支持 createdAt 或 updatedAt。",
+              "default": "createdAt"
+            },
+            "description": "支持 createdAt 或 updatedAt。"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(asc|desc)$",
+              "title": "排序方向",
+              "description": "支持 asc 或 desc。",
+              "default": "desc"
+            },
+            "description": "支持 asc 或 desc。"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "分页大小",
+              "description": "单次返回的最大记录数。",
+              "default": 100
+            },
+            "description": "单次返回的最大记录数。"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "title": "偏移量",
+              "description": "分页偏移量。",
+              "default": 0
+            },
+            "description": "分页偏移量。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "命令管理"
+        ],
+        "summary": "下发命令",
+        "description": "向指定 Agent 下发 update 或 restart 命令。",
+        "operationId": "dispatch_command_api_agents__agent_id__commands_post",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent 标识",
+              "description": "要接收命令的 Agent 唯一标识。"
+            },
+            "description": "要接收命令的 Agent 唯一标识。"
+          },
+          {
+            "name": "X-Requested-By",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "请求发起方",
+              "description": "调用该接口的系统或用户标识。"
+            },
+            "description": "调用该接口的系统或用户标识。"
+          },
+          {
+            "name": "X-Requested-Source",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "请求来源",
+              "description": "调用来源，例如控制台、调度器。"
+            },
+            "description": "调用来源，例如控制台、调度器。"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandDispatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandDispatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/commands": {
+      "get": {
+        "tags": [
+          "命令管理"
+        ],
+        "summary": "查询全局命令列表",
+        "description": "分页查询所有 Agent 的命令历史，支持多条件筛选与排序。",
+        "operationId": "list_commands_api_commands_get",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent 标识",
+              "description": "按 Agent 标识筛选。"
+            },
+            "description": "按 Agent 标识筛选。"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "状态",
+              "description": "按命令状态筛选。"
+            },
+            "description": "按命令状态筛选。"
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "动作",
+              "description": "按命令动作筛选。"
+            },
+            "description": "按命令动作筛选。"
+          },
+          {
+            "name": "requestedBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "请求发起方",
+              "description": "按请求发起方筛选。"
+            },
+            "description": "按请求发起方筛选。"
+          },
+          {
+            "name": "requestSource",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "请求来源",
+              "description": "按请求来源筛选。"
+            },
+            "description": "按请求来源筛选。"
+          },
+          {
+            "name": "createdAfter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "起始时间",
+              "description": "只返回创建时间大于等于该时间的命令。"
+            },
+            "description": "只返回创建时间大于等于该时间的命令。"
+          },
+          {
+            "name": "createdBefore",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "结束时间",
+              "description": "只返回创建时间小于等于该时间的命令。"
+            },
+            "description": "只返回创建时间小于等于该时间的命令。"
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(createdAt|updatedAt)$",
+              "title": "排序字段",
+              "description": "支持 createdAt 或 updatedAt。",
+              "default": "createdAt"
+            },
+            "description": "支持 createdAt 或 updatedAt。"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(asc|desc)$",
+              "title": "排序方向",
+              "description": "支持 asc 或 desc。",
+              "default": "desc"
+            },
+            "description": "支持 asc 或 desc。"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "分页大小",
+              "description": "单次返回的最大记录数。",
+              "default": 100
+            },
+            "description": "单次返回的最大记录数。"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "title": "偏移量",
+              "description": "分页偏移量。",
+              "default": 0
+            },
+            "description": "分页偏移量。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/commands/{request_id}": {
+      "get": {
+        "tags": [
+          "命令管理"
+        ],
+        "summary": "查询单条命令",
+        "description": "根据请求 ID 查询单条命令的最新状态。",
+        "operationId": "get_command_api_commands__request_id__get",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "请求 ID",
+              "description": "要查询的命令请求 ID。"
+            },
+            "description": "要查询的命令请求 ID。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandSnapshot"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/commands/{request_id}/events": {
+      "get": {
+        "tags": [
+          "命令管理"
+        ],
+        "summary": "查询命令事件",
+        "description": "查询命令的完整审计事件流。",
+        "operationId": "get_command_events_api_commands__request_id__events_get",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "请求 ID",
+              "description": "要查询事件流的命令请求 ID。"
+            },
+            "description": "要查询事件流的命令请求 ID。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CommandEventSnapshot"
+                  },
+                  "title": "Response Get Command Events Api Commands  Request Id  Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/commands/{request_id}/retry": {
+      "post": {
+        "tags": [
+          "命令管理"
+        ],
+        "summary": "重试失败命令",
+        "description": "重新下发一条失败命令，并生成新的请求 ID。",
+        "operationId": "retry_command_api_commands__request_id__retry_post",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "请求 ID",
+              "description": "要重试的失败命令请求 ID。"
+            },
+            "description": "要重试的失败命令请求 ID。"
+          },
+          {
+            "name": "X-Requested-By",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "请求发起方",
+              "description": "调用该接口的系统或用户标识。"
+            },
+            "description": "调用该接口的系统或用户标识。"
+          },
+          {
+            "name": "X-Requested-Source",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "请求来源",
+              "description": "调用来源，例如控制台、调度器。"
+            },
+            "description": "调用来源，例如控制台、调度器。"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "请求成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandDispatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentCredentialResponse": {
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "title": "Agent 标识"
+          },
+          "agentKey": {
+            "type": "string",
+            "title": "Agent 密钥"
+          },
+          "issuedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "签发时间"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "是否为首次创建"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agentId",
+          "agentKey",
+          "issuedAt",
+          "created"
+        ],
+        "title": "Agent 凭据响应"
+      },
+      "AgentProvisionRequest": {
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "title": "Agent 标识"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agentId"
+        ],
+        "title": "创建 Agent 请求"
+      },
+      "AgentProvisionResponse": {
+        "properties": {
+          "agent": {
+            "$ref": "#/components/schemas/AgentSnapshot",
+            "title": "Agent 信息"
+          },
+          "agentKey": {
+            "type": "string",
+            "title": "Agent 密钥"
+          },
+          "issuedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "签发时间"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent",
+          "agentKey",
+          "issuedAt"
+        ],
+        "title": "创建 Agent 响应"
+      },
+      "AgentSnapshot": {
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "title": "Agent 标识"
+          },
+          "connected": {
+            "type": "boolean",
+            "title": "是否已连接"
+          },
+          "online": {
+            "type": "boolean",
+            "title": "是否在线"
+          },
+          "credentialConfigured": {
+            "type": "boolean",
+            "title": "是否已配置凭据"
+          },
+          "remote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "远端地址"
+          },
+          "keyIssuedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "密钥签发时间"
+          },
+          "connectedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "连接时间"
+          },
+          "disconnectedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "断开时间"
+          },
+          "lastSeenAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "最后活跃时间"
+          },
+          "lastHeartbeatAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "最后心跳时间"
+          },
+          "lastPongAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "最后 Pong 时间"
+          },
+          "staleAfterSeconds": {
+            "type": "integer",
+            "title": "离线判定秒数"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agentId",
+          "connected",
+          "online",
+          "credentialConfigured",
+          "staleAfterSeconds"
+        ],
+        "title": "Agent 状态快照"
+      },
+      "CommandDispatchRequest": {
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "title": "请求 ID"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "update",
+              "restart"
+            ],
+            "title": "动作"
+          },
+          "dir": {
+            "type": "string",
+            "title": "目标目录"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "目标镜像"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "dir"
+        ],
+        "title": "下发命令请求"
+      },
+      "CommandDispatchResponse": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "是否已受理"
+          },
+          "command": {
+            "$ref": "#/components/schemas/CommandSnapshot",
+            "title": "命令详情"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "command"
+        ],
+        "title": "命令下发响应"
+      },
+      "CommandEventSnapshot": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "事件 ID"
+          },
+          "requestId": {
+            "type": "string",
+            "title": "请求 ID"
+          },
+          "eventType": {
+            "type": "string",
+            "title": "事件类型"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "事件负载"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "创建时间"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "requestId",
+          "eventType",
+          "payload",
+          "createdAt"
+        ],
+        "title": "命令事件"
+      },
+      "CommandListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CommandSnapshot"
+            },
+            "type": "array",
+            "title": "命令列表"
+          },
+          "total": {
+            "type": "integer",
+            "title": "总数"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "分页大小"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "偏移量"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "title": "是否还有更多"
+          },
+          "sortBy": {
+            "type": "string",
+            "enum": [
+              "createdAt",
+              "updatedAt"
+            ],
+            "title": "排序字段"
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "排序方向"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "hasMore",
+          "sortBy",
+          "order"
+        ],
+        "title": "命令列表响应"
+      },
+      "CommandSnapshot": {
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "title": "请求 ID"
+          },
+          "agentId": {
+            "type": "string",
+            "title": "Agent 标识"
+          },
+          "status": {
+            "type": "string",
+            "title": "状态"
+          },
+          "action": {
+            "type": "string",
+            "title": "动作"
+          },
+          "dir": {
+            "type": "string",
+            "title": "目标目录"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "目标镜像"
+          },
+          "originalRequestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "原始请求 ID"
+          },
+          "retryCount": {
+            "type": "integer",
+            "title": "重试次数",
+            "default": 0
+          },
+          "requestedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "请求发起方"
+          },
+          "requestSource": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "请求来源"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "原始负载"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "执行输出"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "结果消息"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "错误信息"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "创建时间"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "更新时间"
+          },
+          "ackAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "确认时间"
+          },
+          "resultAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "结果时间"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requestId",
+          "agentId",
+          "status",
+          "action",
+          "dir",
+          "payload",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "命令快照"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "错误详情"
+          }
+        },
+        "type": "object",
+        "title": "HTTP 请求校验错误"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "错误位置"
+          },
+          "msg": {
+            "type": "string",
+            "title": "错误消息"
+          },
+          "type": {
+            "type": "string",
+            "title": "错误类型"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "字段校验错误"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "系统",
+      "description": "系统健康检查接口。"
+    },
+    {
+      "name": "Agent 管理",
+      "description": "Agent 查询、创建与密钥管理接口。"
+    },
+    {
+      "name": "命令管理",
+      "description": "命令查询、下发、重试与审计接口。"
+    }
+  ]
+}

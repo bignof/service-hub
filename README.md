@@ -76,6 +76,8 @@ Content-Type: application/json
 }
 ```
 
+这里的 `X-Admin-Token` 通过 HTTP Header 传递，值就是 hub 的环境变量 `ADMIN_TOKEN`。
+
 如果是已有 agent 需要换 key，再调用：
 
 ```http

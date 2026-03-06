@@ -17,7 +17,12 @@
 
 ## 认证与请求头
 
-当前 HTTP API 没有单独的鉴权中间件，但建议第三方调用时始终补齐以下审计头：
+当前 HTTP API 分为两类：
+
+- Agent 管理接口：必须携带 `X-Admin-Token`
+- 查询与命令接口：当前不要求管理令牌，但建议携带审计头
+
+建议第三方调用时始终补齐以下审计头：
 
 - `X-Requested-By`：调用方身份，例如 `ops-console`、`platform-api`
 - `X-Requested-Source`：调用来源，例如 `manual-operation`、`scheduler-job`
@@ -27,6 +32,27 @@
 以下 Agent 管理接口额外要求：
 
 - `X-Admin-Token`：Hub 管理令牌，用于创建 agent 和签发/轮换 agent key
+
+### `X-Admin-Token` 怎么传
+
+通过 HTTP Header 传递，不放在 URL、QueryString 或请求体里。
+
+请求示例：
+
+```bash
+curl -X POST "http://<service-hub-host>:8080/api/agents" \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Token: <ADMIN_TOKEN>" \
+  -d '{"agentId":"prod-server-01"}'
+```
+
+如果 `X-Admin-Token` 缺失或不正确，管理接口会返回：
+
+```json
+{
+  "detail": "Invalid admin token"
+}
+```
 
 ## 返回约定
 
@@ -40,6 +66,7 @@
 - `404 Not Found`：Agent 或命令不存在
 - `409 Conflict`：Agent 离线，或当前命令不允许重试
 - `422 Unprocessable Entity`：请求参数或请求体不合法
+- `403 Forbidden`：管理接口缺少或传错 `X-Admin-Token`
 - `502 Bad Gateway`：Hub 已接收请求，但向 Agent 下发失败
 
 ### 通用错误体
@@ -176,6 +203,8 @@ Content-Type: application/json
 
 已存在的 agent 会返回 `409 Agent already exists`。
 
+注意：这里的 `X-Admin-Token` 就是 hub 进程环境变量 `ADMIN_TOKEN` 的值。
+
 ### 4. 为已有 Agent 轮换 key
 
 ```http
@@ -184,6 +213,13 @@ X-Admin-Token: <ADMIN_TOKEN>
 ```
 
 返回：包含新的 `agentKey`。该明文只会在响应里出现一次。
+
+调用示例：
+
+```bash
+curl -X POST "http://<service-hub-host>:8080/api/agents/prod-server-01/credentials/rotate" \
+  -H "X-Admin-Token: <ADMIN_TOKEN>"
+```
 
 ### 5. 查询单个 Agent
 
