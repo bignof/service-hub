@@ -309,6 +309,61 @@ def test_list_commands_supports_sort_and_pagination(client: TestClient) -> None:
     assert len(body["items"]) == 1
 
 
+def test_list_commands_tolerates_empty_query_values(client: TestClient) -> None:
+    response = client.get(
+        "/api/commands",
+        params={
+            "agentId": "",
+            "status": "",
+            "action": "",
+            "requestedBy": "",
+            "requestSource": "",
+            "createdAfter": "",
+            "createdBefore": "",
+            "sortBy": "",
+            "order": "",
+            "limit": "",
+            "offset": "",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"] == []
+    assert body["total"] == 0
+    assert body["sortBy"] == "createdAt"
+    assert body["order"] == "desc"
+    assert body["limit"] == 100
+    assert body["offset"] == 0
+
+
+def test_list_agent_commands_tolerates_empty_query_values(client: TestClient) -> None:
+    response = client.get(
+        "/api/agents/agent-a/commands",
+        params={
+            "status": "",
+            "action": "",
+            "requestedBy": "",
+            "requestSource": "",
+            "createdAfter": "",
+            "createdBefore": "",
+            "sortBy": "",
+            "order": "",
+            "limit": "",
+            "offset": "",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"] == []
+    assert body["total"] == 0
+    assert body["sortBy"] == "createdAt"
+    assert body["order"] == "desc"
+    assert body["limit"] == 100
+    assert body["offset"] == 0
+
+
 def test_agent_command_history_is_paginated(client: TestClient) -> None:
     import app.main as main_module
     state = main_module.hub_state

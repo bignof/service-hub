@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.db import Database
 from app.db_models import AgentModel
-from app.store import CHINA_TZ, HubState, _as_china_time, _loads_payload, utc_now
+from app.store import CHINA_TZ, HubState, _as_china_time, _as_storage_utc, _generate_agent_key, _hash_agent_key, _loads_payload, utc_now
 
 
 def _create_state(tmp_path: Path, history_limit: int = 2) -> tuple[HubState, Database]:
@@ -17,12 +17,19 @@ def _create_state(tmp_path: Path, history_limit: int = 2) -> tuple[HubState, Dat
 
 def test_store_helpers_normalize_payload_and_time() -> None:
     now = utc_now()
+    generated_key = _generate_agent_key()
 
     assert _loads_payload("") == {}
     assert _loads_payload('{"value": 1}') == {"value": 1}
     assert _as_china_time(None) is None
     assert _as_china_time(now.replace(tzinfo=None)) == now.replace(tzinfo=None).replace(tzinfo=now.tzinfo).astimezone(CHINA_TZ)
     assert _as_china_time(now) == now.astimezone(CHINA_TZ)
+    assert _as_storage_utc(None) is None
+    assert _as_storage_utc(now.replace(tzinfo=None)) == now.replace(tzinfo=None).replace(tzinfo=now.tzinfo)
+    assert isinstance(generated_key, str)
+    assert len(generated_key) >= 32
+    assert _hash_agent_key("secret") == _hash_agent_key("secret")
+    assert _hash_agent_key("secret") != _hash_agent_key("other")
 
 
 def test_hub_state_agent_lifecycle_and_database_ops(tmp_path: Path) -> None:
@@ -159,7 +166,11 @@ def test_hub_state_retry_and_missing_updates(tmp_path: Path) -> None:
 def test_agent_key_does_not_expire_by_issued_timestamp(tmp_path: Path) -> None:
     state, database = _create_state(tmp_path)
 
+    assert asyncio.run(state.authenticate_agent("missing", "")) is False
+
     credential = asyncio.run(state.rotate_agent_key("agent-a"))
+
+    assert asyncio.run(state.authenticate_agent("missing", credential["agent_key"])) is False
 
     with database.session_factory() as session:
         record = session.scalar(select(AgentModel).where(AgentModel.agent_id == "agent-a"))

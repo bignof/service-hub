@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,7 @@ from fastapi import HTTPException, WebSocketDisconnect
 os.environ.setdefault("ADMIN_TOKEN", "test-admin-token")
 
 from app.db import Database
-from app.main import _handle_agent_message, _remote_address, _serialize_command, agent_ws, dispatch_command, retry_command
+from app.main import ChinaTimeFormatter, _handle_agent_message, _localize_openapi, _remote_address, _serialize_command, agent_ws, dispatch_command, retry_command
 from app.models import CommandDispatchRequest
 from app.store import HubState
 
@@ -109,6 +110,14 @@ class FailingSocket:
         raise RuntimeError("boom")
 
 
+class RecordingSocket:
+    def __init__(self) -> None:
+        self.payloads: list[dict[str, Any]] = []
+
+    async def send_json(self, payload: dict[str, Any]) -> None:
+        self.payloads.append(payload)
+
+
 class FakeAgentWebSocket:
     def __init__(self, agent_key: str, messages: list[Any], client: Any | None = None) -> None:
         self.query_params = {"key": agent_key}
@@ -159,6 +168,90 @@ def test_remote_address_and_serialize_command(state: HubState) -> None:
     assert snapshot.request_id == "req-1"
 
 
+def test_china_time_formatter_and_openapi_localization(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.main as main_module
+
+    formatter = ChinaTimeFormatter()
+    record = logging.LogRecord("test", logging.INFO, __file__, 1, "msg", (), None)
+    record.created = 0
+
+    assert formatter.formatTime(record, "%Y-%m-%d %H:%M:%S") == "1970-01-01 08:00:00"
+
+    schema = {
+        "paths": {
+            "/health": {
+                "get": {
+                    "responses": {
+                        "200": {"description": "Successful Response"},
+                        "422": {"description": "Validation Error"},
+                    }
+                }
+            }
+        },
+        "components": {
+            "schemas": {
+                "A": {"title": "Response Health Health Get"},
+                "HTTPValidationError": {"title": "x", "properties": {"detail": {"title": "detail"}}},
+                "ValidationError": {
+                    "title": "y",
+                    "properties": {
+                        "loc": {"title": "loc"},
+                        "msg": {"title": "msg"},
+                        "type": {"title": "type"},
+                    },
+                },
+            }
+        },
+    }
+
+    localized = _localize_openapi(schema)
+
+    assert localized["paths"]["/health"]["get"]["responses"]["200"]["description"] == "请求成功"
+    assert localized["paths"]["/health"]["get"]["responses"]["422"]["description"] == "请求校验失败"
+    assert localized["components"]["schemas"]["A"]["title"] == "健康检查响应"
+    assert localized["components"]["schemas"]["HTTPValidationError"]["title"] == "HTTP 请求校验错误"
+    assert localized["components"]["schemas"]["HTTPValidationError"]["properties"]["detail"]["title"] == "错误详情"
+    assert localized["components"]["schemas"]["ValidationError"]["properties"]["loc"]["title"] == "错误位置"
+
+    calls = {"count": 0}
+
+    def fake_openapi() -> dict[str, Any]:
+        calls["count"] += 1
+        return {
+            "paths": {},
+            "components": {"schemas": {}},
+        }
+
+    monkeypatch.setattr(main_module, "original_openapi", fake_openapi)
+    monkeypatch.setattr(main_module.app, "openapi_schema", None)
+
+    first = main_module.custom_openapi()
+    second = main_module.custom_openapi()
+
+    assert first is second
+    assert calls["count"] == 1
+
+
+def test_lifespan_initializes_hub_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.main as main_module
+
+    initialized = {"value": False}
+
+    class StubState:
+        async def initialize(self) -> None:
+            initialized["value"] = True
+
+    monkeypatch.setattr(main_module, "hub_state", StubState())
+
+    async def run_lifespan() -> None:
+        async with main_module.lifespan(main_module.app):
+            pass
+
+    asyncio.run(run_lifespan())
+
+    assert initialized["value"] is True
+
+
 def test_handle_agent_message_branches(monkeypatch: pytest.MonkeyPatch) -> None:
     import app.main as main_module
 
@@ -202,23 +295,54 @@ def test_dispatch_command_error_branches(monkeypatch: pytest.MonkeyPatch) -> Non
 
     recording_state.agent = None
     with pytest.raises(HTTPException, match="Agent not found"):
-        asyncio.run(dispatch_command("agent-a", request))
+        asyncio.run(dispatch_command(request=request, agent_id="agent-a"))
 
     recording_state.agent = {"agent_id": "agent-a", "online": False}
     with pytest.raises(HTTPException, match="Agent is offline"):
-        asyncio.run(dispatch_command("agent-a", request))
+        asyncio.run(dispatch_command(request=request, agent_id="agent-a"))
 
     recording_state.agent = {"agent_id": "agent-a", "online": True}
     recording_state.connection = None
     with pytest.raises(HTTPException, match="Agent connection is unavailable"):
-        asyncio.run(dispatch_command(request, "agent-a"))
+        asyncio.run(dispatch_command(request=request, agent_id="agent-a"))
     assert recording_state.results[-1] == ("req-1", "failed", None, None, "Agent connection is unavailable")
 
     recording_state.connection = FailingSocket()
     with pytest.raises(HTTPException, match="Failed to dispatch command"):
-        asyncio.run(dispatch_command(request, "agent-a"))
+        asyncio.run(dispatch_command(request=request, agent_id="agent-a"))
     assert recording_state.results[-1][0] == "req-1"
     assert recording_state.results[-1][-1] == "Failed to dispatch command: boom"
+
+
+def test_dispatch_command_success_includes_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.main as main_module
+
+    recording_state = RecordingState()
+    recording_state.connection = RecordingSocket()
+    monkeypatch.setattr(main_module, "hub_state", recording_state)
+
+    request = CommandDispatchRequest(request_id="req-image", action="update", dir="/srv/a", image="nginx:1.27")
+
+    response = asyncio.run(
+        dispatch_command(
+            request=request,
+            agent_id="agent-a",
+            requested_by=None,
+            request_source=None,
+        )
+    )
+
+    assert response.accepted is True
+    assert response.command.image == "nginx:1.27"
+    assert recording_state.connection.payloads == [
+        {
+            "type": "command",
+            "requestId": "req-image",
+            "action": "update",
+            "dir": "/srv/a",
+            "image": "nginx:1.27",
+        }
+    ]
 
 
 def test_retry_command_error_branches(monkeypatch: pytest.MonkeyPatch) -> None:

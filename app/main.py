@@ -2,9 +2,10 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import FastAPI, HTTPException, Header, Path, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, HTTPException, Header, Path, Query, WebSocket, WebSocketDisconnect, status
+from pydantic import Field, TypeAdapter, ValidationError
 
 from app.config import settings
 from app.db import Database
@@ -27,6 +28,152 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 for handler in logging.getLogger().handlers:
     handler.setFormatter(ChinaTimeFormatter("%(asctime)s - %(levelname)s - %(message)s"))
 logger = logging.getLogger(__name__)
+
+
+SORT_BY_PATTERN = "^(createdAt|updatedAt)$"
+ORDER_PATTERN = "^(asc|desc)$"
+DATETIME_QUERY_ADAPTER = TypeAdapter(datetime)
+SORT_BY_QUERY_ADAPTER = TypeAdapter(Annotated[str, Field(pattern=SORT_BY_PATTERN)])
+ORDER_QUERY_ADAPTER = TypeAdapter(Annotated[str, Field(pattern=ORDER_PATTERN)])
+LIMIT_QUERY_ADAPTER = TypeAdapter(Annotated[int, Field(ge=1, le=500)])
+OFFSET_QUERY_ADAPTER = TypeAdapter(Annotated[int, Field(ge=0)])
+
+
+def _normalize_query_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    return value
+
+
+def _query_error_detail(field_name: str, value: str, errors: list[Any]) -> list[dict[str, Any]]:
+    details: list[dict[str, Any]] = []
+    for error in errors:
+        detail = dict(error)
+        detail["loc"] = ["query", field_name]
+        detail["input"] = value
+        details.append(detail)
+    return details
+
+
+def _parse_query_with_adapter(
+    *,
+    field_name: str,
+    value: str | None,
+    adapter: TypeAdapter[Any],
+    default: Any,
+    errors: list[dict[str, Any]],
+) -> Any:
+    normalized = _normalize_query_value(value)
+    if normalized is None:
+        return default
+
+    try:
+        return adapter.validate_python(normalized)
+    except ValidationError as exc:
+        errors.extend(_query_error_detail(field_name, normalized, exc.errors()))
+        return default
+
+
+def _parse_command_list_query(
+    *,
+    agent_id: str | None,
+    status_filter: str | None,
+    action: str | None,
+    requested_by: str | None,
+    request_source: str | None,
+    created_after: str | None,
+    created_before: str | None,
+    sort_by: str | None,
+    order: str | None,
+    limit: str | None,
+    offset: str | None,
+) -> dict[str, Any]:
+    errors: list[dict[str, Any]] = []
+    parsed = {
+        "agent_id": _normalize_query_value(agent_id),
+        "status_filter": _normalize_query_value(status_filter),
+        "action": _normalize_query_value(action),
+        "requested_by": _normalize_query_value(requested_by),
+        "request_source": _normalize_query_value(request_source),
+        "created_after": _parse_query_with_adapter(
+            field_name="createdAfter",
+            value=created_after,
+            adapter=DATETIME_QUERY_ADAPTER,
+            default=None,
+            errors=errors,
+        ),
+        "created_before": _parse_query_with_adapter(
+            field_name="createdBefore",
+            value=created_before,
+            adapter=DATETIME_QUERY_ADAPTER,
+            default=None,
+            errors=errors,
+        ),
+        "sort_by": _parse_query_with_adapter(
+            field_name="sortBy",
+            value=sort_by,
+            adapter=SORT_BY_QUERY_ADAPTER,
+            default="createdAt",
+            errors=errors,
+        ),
+        "order": _parse_query_with_adapter(
+            field_name="order",
+            value=order,
+            adapter=ORDER_QUERY_ADAPTER,
+            default="desc",
+            errors=errors,
+        ),
+        "limit": _parse_query_with_adapter(
+            field_name="limit",
+            value=limit,
+            adapter=LIMIT_QUERY_ADAPTER,
+            default=100,
+            errors=errors,
+        ),
+        "offset": _parse_query_with_adapter(
+            field_name="offset",
+            value=offset,
+            adapter=OFFSET_QUERY_ADAPTER,
+            default=0,
+            errors=errors,
+        ),
+    }
+
+    if errors:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=errors)
+
+    return parsed
+
+
+def _command_list_query_dependency(
+    agent_id_filter: str | None = Query(default=None, alias="agentId", title="Agent 标识", description="按 Agent 标识筛选。"),
+    status_filter: str | None = Query(default=None, alias="status", title="状态", description="按命令状态筛选。"),
+    action: str | None = Query(default=None, title="动作", description="按命令动作筛选。"),
+    requested_by: str | None = Query(default=None, alias="requestedBy", title="请求发起方", description="按请求发起方筛选。"),
+    request_source: str | None = Query(default=None, alias="requestSource", title="请求来源", description="按请求来源筛选。"),
+    created_after: str | None = Query(default=None, alias="createdAfter", title="起始时间", description="只返回创建时间大于等于该时间的命令。"),
+    created_before: str | None = Query(default=None, alias="createdBefore", title="结束时间", description="只返回创建时间小于等于该时间的命令。"),
+    sort_by: str | None = Query(default="createdAt", alias="sortBy", title="排序字段", description="支持 createdAt 或 updatedAt。"),
+    order: str | None = Query(default="desc", title="排序方向", description="支持 asc 或 desc。"),
+    limit: str | None = Query(default="100", title="分页大小", description="单次返回的最大记录数。"),
+    offset: str | None = Query(default="0", title="偏移量", description="分页偏移量。"),
+) -> dict[str, Any]:
+    return _parse_command_list_query(
+        agent_id=agent_id_filter,
+        status_filter=status_filter,
+        action=action,
+        requested_by=requested_by,
+        request_source=request_source,
+        created_after=created_after,
+        created_before=created_before,
+        sort_by=sort_by,
+        order=order,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def _localize_openapi(schema: dict[str, Any]) -> dict[str, Any]:
@@ -252,59 +399,17 @@ async def rotate_agent_credentials(
 @app.get("/api/agents/{agent_id}/commands", response_model=CommandListResponse, summary="查询 Agent 命令历史", description="按 Agent 维度分页查询命令历史，支持状态、动作、审计字段和时间范围筛选。", tags=["命令管理"])
 async def list_agent_commands(
     agent_id: str = Path(title="Agent 标识", description="要查询命令历史的 Agent 唯一标识。"),
-    status_filter: str | None = Query(default=None, alias="status", title="状态", description="按命令状态筛选。"),
-    action: str | None = Query(default=None, title="动作", description="按命令动作筛选，例如 update 或 restart。"),
-    requested_by: str | None = Query(default=None, alias="requestedBy", title="请求发起方", description="按请求发起方筛选。"),
-    request_source: str | None = Query(default=None, alias="requestSource", title="请求来源", description="按请求来源筛选。"),
-    created_after: datetime | None = Query(default=None, alias="createdAfter", title="起始时间", description="只返回创建时间大于等于该时间的命令。"),
-    created_before: datetime | None = Query(default=None, alias="createdBefore", title="结束时间", description="只返回创建时间小于等于该时间的命令。"),
-    sort_by: str = Query(default="createdAt", alias="sortBy", pattern="^(createdAt|updatedAt)$", title="排序字段", description="支持 createdAt 或 updatedAt。"),
-    order: str = Query(default="desc", pattern="^(asc|desc)$", title="排序方向", description="支持 asc 或 desc。"),
-    limit: int = Query(default=100, ge=1, le=500, title="分页大小", description="单次返回的最大记录数。"),
-    offset: int = Query(default=0, ge=0, title="偏移量", description="分页偏移量。"),
+    query: dict[str, Any] = Depends(_command_list_query_dependency),
 ) -> CommandListResponse:
-    return await _build_command_list_response(
-        agent_id=agent_id,
-        status_filter=status_filter,
-        action=action,
-        requested_by=requested_by,
-        request_source=request_source,
-        created_after=created_after,
-        created_before=created_before,
-        sort_by=sort_by,
-        order=order,
-        limit=limit,
-        offset=offset,
-    )
+    query["agent_id"] = agent_id
+    return await _build_command_list_response(**query)
 
 
 @app.get("/api/commands", response_model=CommandListResponse, summary="查询全局命令列表", description="分页查询所有 Agent 的命令历史，支持多条件筛选与排序。", tags=["命令管理"])
 async def list_commands(
-    agent_id: str | None = Query(default=None, alias="agentId", title="Agent 标识", description="按 Agent 标识筛选。"),
-    status_filter: str | None = Query(default=None, alias="status", title="状态", description="按命令状态筛选。"),
-    action: str | None = Query(default=None, title="动作", description="按命令动作筛选。"),
-    requested_by: str | None = Query(default=None, alias="requestedBy", title="请求发起方", description="按请求发起方筛选。"),
-    request_source: str | None = Query(default=None, alias="requestSource", title="请求来源", description="按请求来源筛选。"),
-    created_after: datetime | None = Query(default=None, alias="createdAfter", title="起始时间", description="只返回创建时间大于等于该时间的命令。"),
-    created_before: datetime | None = Query(default=None, alias="createdBefore", title="结束时间", description="只返回创建时间小于等于该时间的命令。"),
-    sort_by: str = Query(default="createdAt", alias="sortBy", pattern="^(createdAt|updatedAt)$", title="排序字段", description="支持 createdAt 或 updatedAt。"),
-    order: str = Query(default="desc", pattern="^(asc|desc)$", title="排序方向", description="支持 asc 或 desc。"),
-    limit: int = Query(default=100, ge=1, le=500, title="分页大小", description="单次返回的最大记录数。"),
-    offset: int = Query(default=0, ge=0, title="偏移量", description="分页偏移量。"),
+    query: dict[str, Any] = Depends(_command_list_query_dependency),
 ) -> CommandListResponse:
-    return await _build_command_list_response(
-        agent_id=agent_id,
-        status_filter=status_filter,
-        action=action,
-        requested_by=requested_by,
-        request_source=request_source,
-        created_after=created_after,
-        created_before=created_before,
-        sort_by=sort_by,
-        order=order,
-        limit=limit,
-        offset=offset,
-    )
+    return await _build_command_list_response(**query)
 
 
 @app.get("/api/commands/{request_id}", response_model=CommandSnapshot, summary="查询单条命令", description="根据请求 ID 查询单条命令的最新状态。", tags=["命令管理"])
