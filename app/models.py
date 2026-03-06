@@ -17,6 +17,15 @@ MODEL_CONFIG = ConfigDict(
 )
 
 
+def titled_model_config(title: str) -> ConfigDict:
+    return ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        serialize_by_alias=True,
+        title=title,
+    )
+
+
 class CommandDispatchRequest(BaseModel):
     model_config = ConfigDict(title="下发命令请求")
 
@@ -37,7 +46,7 @@ class CommandDispatchRequest(BaseModel):
 
 
 class AgentSnapshot(BaseModel):
-    model_config = ConfigDict(**MODEL_CONFIG, title="Agent 状态快照")
+    model_config = titled_model_config("Agent 状态快照")
 
     agent_id: str = Field(title="Agent 标识")
     connected: bool = Field(title="是否已连接")
@@ -57,7 +66,7 @@ class AgentSnapshot(BaseModel):
 
 
 class AgentCredentialResponse(BaseModel):
-    model_config = ConfigDict(**MODEL_CONFIG, title="Agent 凭据响应")
+    model_config = titled_model_config("Agent 凭据响应")
 
     agent_id: str = Field(title="Agent 标识")
     agent_key: str = Field(title="Agent 密钥")
@@ -76,7 +85,7 @@ class AgentProvisionRequest(BaseModel):
 
 
 class AgentProvisionResponse(BaseModel):
-    model_config = ConfigDict(**MODEL_CONFIG, title="创建 Agent 响应")
+    model_config = titled_model_config("创建 Agent 响应")
 
     agent: AgentSnapshot = Field(title="Agent 信息")
     agent_key: str = Field(title="Agent 密钥")
@@ -84,7 +93,7 @@ class AgentProvisionResponse(BaseModel):
 
 
 class CommandSnapshot(BaseModel):
-    model_config = ConfigDict(**MODEL_CONFIG, title="命令快照")
+    model_config = titled_model_config("命令快照")
 
     request_id: str = Field(title="请求 ID")
     agent_id: str = Field(title="Agent 标识")
@@ -107,7 +116,7 @@ class CommandSnapshot(BaseModel):
 
 
 class CommandEventSnapshot(BaseModel):
-    model_config = ConfigDict(**MODEL_CONFIG, title="命令事件")
+    model_config = titled_model_config("命令事件")
 
     id: int = Field(title="事件 ID")
     request_id: str = Field(title="请求 ID")
@@ -117,7 +126,7 @@ class CommandEventSnapshot(BaseModel):
 
 
 class CommandListResponse(BaseModel):
-    model_config = ConfigDict(**MODEL_CONFIG, title="命令列表响应")
+    model_config = titled_model_config("命令列表响应")
 
     items: list[CommandSnapshot] = Field(title="命令列表")
     total: int = Field(title="总数")
@@ -129,7 +138,7 @@ class CommandListResponse(BaseModel):
 
 
 class CommandDispatchResponse(BaseModel):
-    model_config = ConfigDict(**MODEL_CONFIG, title="命令下发响应")
+    model_config = titled_model_config("命令下发响应")
 
     accepted: bool = Field(title="是否已受理")
     command: CommandSnapshot = Field(title="命令详情")
