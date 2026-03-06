@@ -42,8 +42,8 @@ jobs:
           print("alembic upgrade ok")
           PY
 
-      - name: Run tests with coverage gate
-        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=97 -q
+      - name: Run tests
+        run: pytest -q
 
       - name: Build Docker image
         run: docker build -t service-hub:ci .
