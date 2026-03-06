@@ -36,7 +36,7 @@ jobs:
       - name: Set image tags
         shell: bash
         run: |
-          echo "TS=$(date -u +'%Y%m%d-%H%M%S')" >> "$GITHUB_ENV"
+          echo "TS=$(TZ='Asia/Shanghai' date +'%Y%m%d-%H%M%S')" >> "$GITHUB_ENV"
           echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       - name: Build and push image
