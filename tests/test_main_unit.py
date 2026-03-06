@@ -12,7 +12,7 @@ from fastapi import HTTPException, WebSocketDisconnect
 os.environ.setdefault("ADMIN_TOKEN", "test-admin-token")
 
 from app.db import Database
-from app.main import ChinaTimeFormatter, _handle_agent_message, _localize_openapi, _remote_address, _serialize_command, agent_ws, dispatch_command, retry_command
+from app.main import ChinaTimeFormatter, _handle_agent_message, _localize_openapi, _remote_address, _require_admin_token, _serialize_command, agent_ws, dispatch_command, retry_command
 from app.models import CommandDispatchRequest
 from app.store import HubState
 
@@ -252,6 +252,23 @@ def test_lifespan_initializes_hub_state(monkeypatch: pytest.MonkeyPatch) -> None
     assert initialized["value"] is True
 
 
+def test_require_admin_token_handles_missing_and_invalid_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.main as main_module
+
+    original = main_module.settings.admin_token
+
+    object.__setattr__(main_module.settings, "admin_token", "")
+    with pytest.raises(HTTPException, match="Admin token is not configured"):
+        _require_admin_token("anything")
+
+    object.__setattr__(main_module.settings, "admin_token", "configured-token")
+    with pytest.raises(HTTPException, match="Invalid admin token"):
+        _require_admin_token("wrong-token")
+
+    _require_admin_token("configured-token")
+    object.__setattr__(main_module.settings, "admin_token", original)
+
+
 def test_handle_agent_message_branches(monkeypatch: pytest.MonkeyPatch) -> None:
     import app.main as main_module
 
@@ -291,7 +308,7 @@ def test_dispatch_command_error_branches(monkeypatch: pytest.MonkeyPatch) -> Non
     recording_state = RecordingState()
     monkeypatch.setattr(main_module, "hub_state", recording_state)
 
-    request = CommandDispatchRequest(request_id="req-1", action="restart", dir="/srv/a")
+    request = CommandDispatchRequest(requestId="req-1", action="restart", dir="/srv/a")
 
     recording_state.agent = None
     with pytest.raises(HTTPException, match="Agent not found"):
@@ -321,7 +338,7 @@ def test_dispatch_command_success_includes_image(monkeypatch: pytest.MonkeyPatch
     recording_state.connection = RecordingSocket()
     monkeypatch.setattr(main_module, "hub_state", recording_state)
 
-    request = CommandDispatchRequest(request_id="req-image", action="update", dir="/srv/a", image="nginx:1.27")
+    request = CommandDispatchRequest(requestId="req-image", action="update", dir="/srv/a", image="nginx:1.27")
 
     response = asyncio.run(
         dispatch_command(

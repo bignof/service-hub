@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import WebSocket
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from app.db import Database
 from app.db_models import AgentModel, CommandEventModel, CommandModel
@@ -258,22 +258,22 @@ class HubState:
 
     async def list_agents(self) -> list[dict[str, Any]]:
         connection_ids = await self._connection_ids()
-        agents = await asyncio.to_thread(self._list_agents_sync)
-        snapshots = [self._snapshot_agent(agent, connection_ids) for agent in agents]
+        agents, summaries = await asyncio.to_thread(self._list_agents_with_summaries_sync)
+        snapshots = [self._snapshot_agent(agent, connection_ids, summaries.get(agent["agent_id"], {})) for agent in agents]
         return sorted(snapshots, key=lambda item: item["agent_id"])
 
     async def get_agent(self, agent_id: str) -> dict[str, Any] | None:
         connection_ids = await self._connection_ids()
-        record = await asyncio.to_thread(self._get_agent_sync, agent_id)
+        record, summary = await asyncio.to_thread(self._get_agent_with_summary_sync, agent_id)
         if record is None:
             return None
-        return self._snapshot_agent(record, connection_ids)
+        return self._snapshot_agent(record, connection_ids, summary)
 
     async def _connection_ids(self) -> set[str]:
         async with self._lock:
             return set(self._connections.keys())
 
-    def _snapshot_agent(self, record: dict[str, Any], connection_ids: set[str]) -> dict[str, Any]:
+    def _snapshot_agent(self, record: dict[str, Any], connection_ids: set[str], summary: dict[str, Any]) -> dict[str, Any]:
         last_seen_at = record["last_seen_at"]
         connected = record["agent_id"] in connection_ids
         online = bool(
@@ -294,7 +294,42 @@ class HubState:
             "last_heartbeat_at": record["last_heartbeat_at"],
             "last_pong_at": record["last_pong_at"],
             "stale_after_seconds": self.heartbeat_timeout,
+            "queued_commands": summary.get("queued_commands", 0),
+            "processing_commands": summary.get("processing_commands", 0),
+            "last_command_created_at": summary.get("last_command_created_at"),
         }
+
+    def _command_summary_map_sync(self, agent_id: str | None = None) -> dict[str, dict[str, Any]]:
+        statement = select(
+            CommandModel.agent_id,
+            func.sum(case((CommandModel.status == "queued", 1), else_=0)).label("queued_commands"),
+            func.sum(case((CommandModel.status == "processing", 1), else_=0)).label("processing_commands"),
+            func.max(CommandModel.created_at).label("last_command_created_at"),
+        ).group_by(CommandModel.agent_id)
+        if agent_id is not None:
+            statement = statement.where(CommandModel.agent_id == agent_id)
+
+        with self.database.session_factory() as session:
+            rows = session.execute(statement).all()
+
+        summaries: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            summaries[row.agent_id] = {
+                "queued_commands": int(row.queued_commands or 0),
+                "processing_commands": int(row.processing_commands or 0),
+                "last_command_created_at": _as_china_time(row.last_command_created_at),
+            }
+        return summaries
+
+    def _list_agents_with_summaries_sync(self) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+        return self._list_agents_sync(), self._command_summary_map_sync()
+
+    def _get_agent_with_summary_sync(self, agent_id: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        record = self._get_agent_sync(agent_id)
+        if record is None:
+            return None, {}
+        summaries = self._command_summary_map_sync(agent_id)
+        return record, summaries.get(agent_id, {})
 
     def _register_agent_sync(self, agent_id: str, remote: str | None) -> None:
         now = utc_now()

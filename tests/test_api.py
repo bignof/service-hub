@@ -4,6 +4,8 @@ import asyncio
 from datetime import timedelta
 import os
 from pathlib import Path
+import threading
+import time
 from typing import Any, Iterator
 
 import pytest
@@ -80,11 +82,42 @@ def test_list_agents_and_get_agent_return_expected_shape(client: TestClient) -> 
     assert body[0]["connected"] is True
     assert body[0]["online"] is True
     assert body[0]["credentialConfigured"] is False
+    assert body[0]["queuedCommands"] == 0
+    assert body[0]["processingCommands"] == 0
+    assert body[0]["lastCommandCreatedAt"] is None
 
     agent_response = client.get("/api/agents/agent-a")
 
     assert agent_response.status_code == 200
     assert agent_response.json()["agentId"] == "agent-a"
+
+
+def test_agent_status_includes_queued_and_processing_command_summary(client: TestClient) -> None:
+    import app.main as main_module
+
+    state = main_module.hub_state
+    attach_agent(state, "agent-a")
+    asyncio.run(
+        state.store_command(
+            "agent-a",
+            {"type": "command", "requestId": "req-queued", "action": "restart", "dir": "/srv/a"},
+        )
+    )
+    asyncio.run(
+        state.store_command(
+            "agent-a",
+            {"type": "command", "requestId": "req-processing", "action": "restart", "dir": "/srv/a"},
+        )
+    )
+    asyncio.run(state.mark_ack("req-processing"))
+
+    response = client.get("/api/agents/agent-a")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["queuedCommands"] == 1
+    assert body["processingCommands"] == 1
+    assert body["lastCommandCreatedAt"] is not None
 
 
 def test_rotate_agent_credentials_requires_admin_token_and_persists_state(client: TestClient) -> None:
@@ -337,10 +370,26 @@ def test_list_commands_tolerates_empty_query_values(client: TestClient) -> None:
     assert body["offset"] == 0
 
 
-def test_list_agent_commands_tolerates_empty_query_values(client: TestClient) -> None:
+def test_list_commands_supports_agent_filter(client: TestClient) -> None:
+    import app.main as main_module
+
+    state = main_module.hub_state
+    asyncio.run(state.store_command("agent-a", {"type": "command", "requestId": "req-agent-filter-1", "action": "restart", "dir": "/srv/a"}))
+    asyncio.run(state.store_command("agent-b", {"type": "command", "requestId": "req-agent-filter-2", "action": "restart", "dir": "/srv/b"}))
+
+    filtered_response = client.get("/api/commands", params={"agentId": "agent-a"})
+
+    assert filtered_response.status_code == 200
+    filtered_body = filtered_response.json()
+    assert filtered_body["total"] == 1
+    assert filtered_body["items"][0]["requestId"] == "req-agent-filter-1"
+
+
+def test_list_commands_tolerates_empty_query_values_after_agent_filter_cleanup(client: TestClient) -> None:
     response = client.get(
-        "/api/agents/agent-a/commands",
+        "/api/commands",
         params={
+            "agentId": "",
             "status": "",
             "action": "",
             "requestedBy": "",
@@ -364,7 +413,7 @@ def test_list_agent_commands_tolerates_empty_query_values(client: TestClient) ->
     assert body["offset"] == 0
 
 
-def test_agent_command_history_is_paginated(client: TestClient) -> None:
+def test_command_history_is_paginated_with_agent_filter(client: TestClient) -> None:
     import app.main as main_module
     state = main_module.hub_state
     asyncio.run(state.store_command("agent-a", {"type": "command", "requestId": "req-1", "action": "restart", "dir": "/srv/a"}, requested_by="platform-api", request_source="ops-console"))
@@ -372,7 +421,7 @@ def test_agent_command_history_is_paginated(client: TestClient) -> None:
     asyncio.run(state.store_command("agent-b", {"type": "command", "requestId": "req-2", "action": "restart", "dir": "/srv/b"}, requested_by="platform-api", request_source="ops-console"))
     asyncio.run(state.mark_result("req-2", "success", message="done"))
 
-    response = client.get("/api/agents/agent-a/commands", params={"status": "failed"})
+    response = client.get("/api/commands", params={"agentId": "agent-a", "status": "failed"})
 
     assert response.status_code == 200
     body = response.json()
@@ -426,3 +475,70 @@ def test_retry_missing_command_returns_404(client: TestClient) -> None:
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Command not found"}
+
+
+def test_command_round_trip_over_real_websocket_connection(client: TestClient) -> None:
+    provision_response = client.post(
+        "/api/agents",
+        headers={"X-Admin-Token": "test-admin-token"},
+        json={"agentId": "agent-ws"},
+    )
+
+    assert provision_response.status_code == 201
+    agent_key = provision_response.json()["agentKey"]
+    dispatch_response: dict[str, Any] = {}
+
+    def dispatch() -> None:
+        dispatch_response["response"] = client.post(
+            "/api/agents/agent-ws/commands",
+            headers={
+                "X-Requested-By": "platform-api",
+                "X-Requested-Source": "ops-console",
+            },
+            json={
+                "requestId": "req-ws-roundtrip",
+                "action": "restart",
+                "dir": "/srv/real-ws",
+            },
+        )
+
+    with client.websocket_connect(f"/ws/agent/agent-ws?key={agent_key}") as websocket:
+        worker = threading.Thread(target=dispatch)
+        worker.start()
+
+        payload = websocket.receive_json()
+        assert payload == {
+            "type": "command",
+            "requestId": "req-ws-roundtrip",
+            "action": "restart",
+            "dir": "/srv/real-ws",
+        }
+
+        websocket.send_json({"type": "ack", "requestId": "req-ws-roundtrip"})
+        websocket.send_json({"type": "result", "requestId": "req-ws-roundtrip", "status": "success", "message": "done"})
+        worker.join(timeout=5)
+        response = dispatch_response["response"]
+        assert response.status_code == 202
+
+        command_response = None
+        for _ in range(20):
+            command_response = client.get("/api/commands/req-ws-roundtrip")
+            assert command_response.status_code == 200
+            if command_response.json()["status"] == "success":
+                break
+            time.sleep(0.05)
+
+        assert command_response is not None
+        assert command_response.json()["status"] == "success"
+        assert command_response.json()["message"] == "done"
+
+        events_response = None
+        for _ in range(20):
+            events_response = client.get("/api/commands/req-ws-roundtrip/events")
+            assert events_response.status_code == 200
+            if [item["eventType"] for item in events_response.json()] == ["created", "ack", "result"]:
+                break
+            time.sleep(0.05)
+
+        assert events_response is not None
+        assert [item["eventType"] for item in events_response.json()] == ["created", "ack", "result"]

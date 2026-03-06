@@ -9,6 +9,7 @@ service-hub 是面向平台侧的控制服务，负责接收 service-agent 的 W
 - 提供 HTTP API 给其他服务查询 agent 存活情况
 - 提供 HTTP API 给其他服务向指定 agent 下发 `update` / `restart` 指令
 - 跟踪每个 `requestId` 的处理状态：`queued`、`processing`、`success`、`failed`
+- Agent 状态接口会汇总当前 `queued` / `processing` 命令数，便于观察等待和执行中的任务
 - V2 第一阶段已支持命令、审计事件和 Agent 最新状态持久化
 
 ## 启动方式
@@ -104,174 +105,38 @@ ws://<SERVICE_HUB_HOST>:8080/ws/agent
 - FastAPI 在线文档：`/docs`
 - OpenAPI JSON：`/openapi.json`
 - 第三方对接说明：`docs/THIRD_PARTY_API.md`
+- 功能边界与扩展规则：`docs/API_GOVERNANCE.md`
 
-### 健康检查
+README 只保留稳定公开面的索引，不再重复维护完整请求示例和返回体；详细接口契约统一以 `docs/THIRD_PARTY_API.md` 和 `docs/apifox-openapi.json` 为准。
+
+### 稳定公开面
+
+#### 系统
 
 ```http
 GET /health
 ```
 
-### 查询全部 agent
+#### Agent 管理
 
 ```http
 GET /api/agents
-```
-
-返回示例：
-
-```json
-[
-  {
-    "agentId": "prod-server-01",
-    "connected": true,
-    "online": true,
-    "credentialConfigured": true,
-    "remote": "10.0.0.8:51234",
-    "keyIssuedAt": "2026-03-06T09:59:00Z",
-    "connectedAt": "2026-03-06T10:00:00Z",
-    "disconnectedAt": null,
-    "lastSeenAt": "2026-03-06T10:01:00Z",
-    "lastHeartbeatAt": "2026-03-06T10:01:00Z",
-    "lastPongAt": null,
-    "staleAfterSeconds": 90
-  }
-]
-```
-
-### 查询单个 agent 状态
-
-```http
 GET /api/agents/{agentId}
+POST /api/agents
+POST /api/agents/{agentId}/credentials/rotate
 ```
 
-### 查询指定 agent 的命令历史
+#### 命令管理
 
 ```http
-GET /api/agents/{agentId}/commands?status=failed&requestedBy=platform-api&sortBy=updatedAt&order=desc&limit=20&offset=0
-```
-
-返回结构与 `GET /api/commands` 一致，只是额外固定了 `agentId` 维度。
-
-### 查询单条命令状态
-
-```http
+GET /api/commands
 GET /api/commands/{requestId}
-```
-
-### 查询命令列表
-
-```http
-GET /api/commands?agentId=prod-server-01&status=success&action=update&requestedBy=platform-api&requestSource=ops-console&createdAfter=2026-03-01T00:00:00Z&createdBefore=2026-03-06T23:59:59Z&sortBy=updatedAt&order=desc&limit=50&offset=0
-```
-
-返回示例：
-
-```json
-{
-  "items": [
-    {
-      "requestId": "c7d99f80-b88e-45fc-a6df-7fe1d9eab1f5",
-      "agentId": "prod-server-01",
-      "status": "success",
-      "action": "restart",
-      "dir": "/data/dev/admin",
-      "image": null,
-      "requestedBy": "platform-api",
-      "requestSource": "ops-console",
-      "payload": {
-        "type": "command",
-        "requestId": "c7d99f80-b88e-45fc-a6df-7fe1d9eab1f5",
-        "action": "restart",
-        "dir": "/data/dev/admin"
-      },
-      "output": null,
-      "message": null,
-      "error": null,
-      "createdAt": "2026-03-06T10:02:00Z",
-      "updatedAt": "2026-03-06T10:02:03Z",
-      "ackAt": "2026-03-06T10:02:01Z",
-      "resultAt": "2026-03-06T10:02:03Z"
-    }
-  ],
-  "total": 1,
-  "limit": 50,
-  "offset": 0,
-  "hasMore": false,
-  "sortBy": "updatedAt",
-  "order": "desc"
-}
-```
-
-### 重试失败命令
-
-```http
-POST /api/commands/{requestId}/retry
-X-Requested-By: platform-api
-X-Requested-Source: ops-console
-```
-
-只有失败命令允许重试。重试会生成新的 `requestId`，原命令保留不变，并在审计事件中追加 `retry` 记录。
-
-### 查询命令审计事件
-
-```http
 GET /api/commands/{requestId}/events
-```
-
-### 下发命令
-
-```http
 POST /api/agents/{agentId}/commands
-Content-Type: application/json
-
-{
-  "action": "update",
-  "dir": "/data/dev/admin",
-  "image": "hello-world:latest"
-}
+POST /api/commands/{requestId}/retry
 ```
 
-`restart` 示例：
-
-```http
-POST /api/agents/{agentId}/commands
-Content-Type: application/json
-
-{
-  "action": "restart",
-  "dir": "/data/dev/admin"
-}
-```
-
-返回示例：
-
-```json
-{
-  "accepted": true,
-  "command": {
-    "requestId": "c7d99f80-b88e-45fc-a6df-7fe1d9eab1f5",
-    "agentId": "prod-server-01",
-    "status": "queued",
-    "action": "update",
-    "dir": "/data/dev/admin",
-    "image": "hello-world:latest",
-    "payload": {
-      "type": "command",
-      "requestId": "c7d99f80-b88e-45fc-a6df-7fe1d9eab1f5",
-      "action": "update",
-      "dir": "/data/dev/admin",
-      "image": "hello-world:latest"
-    },
-    "output": null,
-    "message": null,
-    "error": null,
-    "createdAt": "2026-03-06T10:02:00Z",
-    "updatedAt": "2026-03-06T10:02:00Z",
-    "ackAt": null,
-    "resultAt": null
-  }
-}
-```
+当前公开 API 默认只围绕 `agent` 和 `command` 两类资源扩展。若后续需求无法自然归入这两个资源，应先回到 `docs/API_GOVERNANCE.md` 评估，而不是直接增加新顶级接口。
 
 ## 说明
 
@@ -281,10 +146,12 @@ Content-Type: application/json
 - 默认推荐本地开发使用 SQLite，生产环境使用 MySQL
 - Agent 认证已改为“每个 agentId 对应一个独立 key”，不再依赖所有 agent 共用一个固定连接 token
 - Agent 的在线判定依据仍然是连接未断开且最近一次消息时间未超过 `HEARTBEAT_TIMEOUT`
+- Agent 状态快照会返回 `queuedCommands`、`processingCommands` 和 `lastCommandCreatedAt`，用于观测当前控制面负载
 - 命令查询支持按 `createdAt` / `updatedAt` 排序，并支持失败命令的重试下发
+- HTTP 路由已按 `system` / `agent` / `command` / `websocket` 拆分到 `app/routers/`，`app/main.py` 只负责应用装配和导出兼容层
 - `docker-compose.yml` 已改为拉取镜像部署，并内置 `/health` 容器健康检查
 
-## V2 规划
+## 文档
 
-- 持久化、审计和数据库支持的规划见 `docs/V2_PLAN.md`
+- Hub 功能边界与 API 扩展规则见 `docs/API_GOVERNANCE.md`
 - 第三方服务对接 HTTP API 见 `docs/THIRD_PARTY_API.md`

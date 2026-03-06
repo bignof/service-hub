@@ -18,12 +18,16 @@ MODEL_CONFIG = ConfigDict(
 
 
 class CommandDispatchRequest(BaseModel):
-    model_config = ConfigDict(**MODEL_CONFIG, title="下发命令请求")
+    model_config = ConfigDict(title="下发命令请求")
 
-    request_id: str = Field(default_factory=lambda: str(uuid4()), title="请求 ID")
+    requestId: str = Field(default_factory=lambda: str(uuid4()), title="请求 ID")
     action: Literal["update", "restart"] = Field(title="动作")
     dir: str = Field(title="目标目录")
     image: str | None = Field(default=None, title="目标镜像")
+
+    @property
+    def request_id(self) -> str:
+        return self.requestId
 
     @model_validator(mode="after")
     def validate_image(self) -> "CommandDispatchRequest":
@@ -47,6 +51,9 @@ class AgentSnapshot(BaseModel):
     last_heartbeat_at: datetime | None = Field(default=None, title="最后心跳时间")
     last_pong_at: datetime | None = Field(default=None, title="最后 Pong 时间")
     stale_after_seconds: int = Field(title="离线判定秒数")
+    queued_commands: int = Field(default=0, title="排队中的命令数")
+    processing_commands: int = Field(default=0, title="执行中的命令数")
+    last_command_created_at: datetime | None = Field(default=None, title="最近命令创建时间")
 
 
 class AgentCredentialResponse(BaseModel):
@@ -59,9 +66,13 @@ class AgentCredentialResponse(BaseModel):
 
 
 class AgentProvisionRequest(BaseModel):
-    model_config = ConfigDict(**MODEL_CONFIG, title="创建 Agent 请求")
+    model_config = ConfigDict(title="创建 Agent 请求")
 
-    agent_id: str = Field(title="Agent 标识")
+    agentId: str = Field(title="Agent 标识")
+
+    @property
+    def agent_id(self) -> str:
+        return self.agentId
 
 
 class AgentProvisionResponse(BaseModel):

@@ -7,6 +7,7 @@
 - 第三方系统应只使用 HTTP API
 - Agent 与 Hub 的 WebSocket 协议不属于第三方开放接口范围
 - 本文档覆盖 Agent 管理、查询、下发命令、重试失败命令和审计查询
+- Hub 的职责边界与 API 扩展规则见 `docs/API_GOVERNANCE.md`
 
 ## 基础信息
 
@@ -94,11 +95,20 @@ curl -X POST "http://<service-hub-host>:8080/api/agents" \
   "lastSeenAt": "2026-03-06T18:01:00+08:00",
   "lastHeartbeatAt": "2026-03-06T18:01:00+08:00",
   "lastPongAt": null,
-  "staleAfterSeconds": 90
+  "staleAfterSeconds": 90,
+  "queuedCommands": 1,
+  "processingCommands": 2,
+  "lastCommandCreatedAt": "2026-03-06T18:02:00+08:00"
 }
 ```
 
 说明：本文档中的时间字段默认使用中国时区（`+08:00`）。
+
+补充说明：
+
+- `queuedCommands` 表示 hub 已受理但尚未收到 Agent ACK 的命令数。这通常意味着命令仍在传输中，或 Agent 因同目录互斥而尚未开始执行。
+- `processingCommands` 表示 Agent 已 ACK、当前正在执行的命令数。
+- `lastCommandCreatedAt` 表示最近一次给该 Agent 创建命令记录的时间。
 
 ### CommandSnapshot
 
@@ -233,28 +243,7 @@ curl -X POST "http://<service-hub-host>:8080/api/agents/prod-server-01/credentia
 GET /api/agents/{agentId}
 ```
 
-### 6. 查询某个 Agent 的命令历史
-
-```http
-GET /api/agents/{agentId}/commands?status=failed&requestedBy=platform-api&requestSource=ops-console&createdAfter=2026-03-01T00:00:00%2B08:00&createdBefore=2026-03-06T23:59:59%2B08:00&sortBy=updatedAt&order=desc&limit=20&offset=0
-```
-
-查询参数：
-
-- `status`：可选，命令状态
-- `action`：可选，`update` 或 `restart`
-- `requestedBy`：可选，审计调用方
-- `requestSource`：可选，审计来源
-- `createdAfter`：可选，ISO 8601 时间，默认按中国时区理解和返回
-- `createdBefore`：可选，ISO 8601 时间，默认按中国时区理解和返回
-- `sortBy`：可选，`createdAt` 或 `updatedAt`
-- `order`：可选，`asc` 或 `desc`
-- `limit`：可选，默认 `100`，最大 `500`
-- `offset`：可选，默认 `0`
-
-返回：`CommandListResponse`
-
-### 7. 查询全局命令列表
+### 6. 查询命令列表
 
 ```http
 GET /api/commands?agentId=prod-server-01&status=success&action=restart&requestedBy=platform-api&requestSource=ops-console&createdAfter=2026-03-01T00:00:00%2B08:00&createdBefore=2026-03-06T23:59:59%2B08:00&sortBy=updatedAt&order=desc&limit=50&offset=0
@@ -262,7 +251,9 @@ GET /api/commands?agentId=prod-server-01&status=success&action=restart&requested
 
 返回：`CommandListResponse`
 
-### 8. 查询单条命令
+说明：如果只查询某个 Agent 的命令历史，统一使用 `agentId` 查询参数过滤，不再提供单独的 `/api/agents/{agentId}/commands` 接口。
+
+### 7. 查询单条命令
 
 ```http
 GET /api/commands/{requestId}
@@ -270,7 +261,7 @@ GET /api/commands/{requestId}
 
 返回：`CommandSnapshot`
 
-### 9. 查询命令审计事件
+### 8. 查询命令审计事件
 
 ```http
 GET /api/commands/{requestId}/events
@@ -285,7 +276,7 @@ GET /api/commands/{requestId}/events
 - `result`
 - `retry`
 
-### 10. 下发命令
+### 9. 下发命令
 
 ```http
 POST /api/agents/{agentId}/commands
@@ -344,7 +335,7 @@ Content-Type: application/json
 }
 ```
 
-### 11. 重试失败命令
+### 10. 重试失败命令
 
 ```http
 POST /api/commands/{requestId}/retry
